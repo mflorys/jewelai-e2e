@@ -1,0 +1,208 @@
+You are designing and extending a DEV-ONLY E2E test framework for the JewelAI project.
+This is NOT CI/CD yet. This is a separate, local E2E project.
+
+================================
+ABSOLUTE RULES (NON-NEGOTIABLE)
+================================
+
+1. DEV ONLY
+- The E2E framework must NEVER be runnable against production.
+- Any attempt to run without explicit DEV/E2E configuration must FAIL FAST.
+
+2. NO GUESSING
+- If the framework has to guess configuration, environment, URLs, or state → it is a BUG.
+- All configuration must be explicit and deterministic.
+
+3. ONE BACKEND PER RUN
+- Frontend talks to exactly ONE backend per test run.
+- Backend is chosen at startup time only.
+- Changing backend = restart frontend + restart tests.
+
+4. CLEAN STATE GUARANTEE
+- Every test MUST leave the system in exactly the same state as before the test.
+- Backend uses soft delete → E2E MUST clean the database directly.
+- Cleanup MUST NOT be done through HTTP APIs.
+
+================================
+RUNTIME CONTEXT (FACTUAL)
+================================
+
+Local DEV-E2E stack:
+
+- Frontend: http://localhost:3005
+- Backend:  http://localhost:8081
+- Database: localhost:5434 (Postgres, DB name: jewelai)
+
+Docker:
+- Docker does NOT clone from Git.
+- Backend and frontend are bind-mounted from the LOCAL working tree.
+- The code used by E2E is the currently checked-out local branch.
+
+Frontend configuration:
+- NO .env.local
+- NO NEXT_PUBLIC_API_URL
+- NO fallback chains (??, ||)
+- Backend URL comes ONLY from:
+  publicRuntimeConfig.BACKEND_URL (Next.js runtime config)
+- Default BACKEND_URL = http://localhost:8080
+- Override ONLY via process.env.BACKEND_URL at startup.
+
+================================
+BACKEND – E2E PROFILE & MOCKING
+================================
+
+1. Profile
+- Introduce a Spring profile: dev-e2e
+- Activated ONLY via SPRING_PROFILES_ACTIVE=dev-e2e
+- Must never activate implicitly.
+
+2. Configuration
+- Add application-dev-e2e.yml
+- Include explicit flags such as:
+  - e2e.enabled=true
+  - mock.visualization=true/false
+  - mock.filesystem=true/false
+
+3. Mocking strategy (CRITICAL)
+- Do NOT guess class names or interfaces.
+- First, analyze the existing backend code to identify:
+  a) visualization / image generation responsibility
+  b) file storage responsibility
+- Mock ONLY at existing abstraction boundaries (ports/interfaces/services).
+- If no clean abstraction exists:
+  - STOP
+  - Propose a MINIMAL port–adapter refactor.
+- Apply mocks ONLY using:
+  - @Profile("dev-e2e")
+  - @Primary
+- NO if/else branches in production code.
+
+4. Mock behavior requirements
+- Visualization mock:
+  - deterministic output
+  - versioned results
+- File storage mock:
+  - writes ONLY inside a dedicated E2E directory
+  - predictable, stable paths
+- NO external APIs
+- NO network calls
+
+5. Safety rails
+- If mocks are enabled under any profile other than dev-e2e → FAIL FAST.
+
+================================
+DATABASE STRATEGY
+================================
+
+- Tests run against a real Postgres database.
+- Two possible modes:
+  a) local Postgres (port 5434)
+  b) Testcontainers
+- Selection via ONE explicit E2E configuration flag.
+
+Cleanup rules:
+- ALL cleanup is done via direct DB access.
+- Introduce a DbTestGateway / DbCleaner abstraction.
+- Cleanup must:
+  - remove ALL test data
+  - respect FK constraints
+  - handle soft-deleted rows
+- NO cleanup through backend APIs.
+
+================================
+SELENIUM / E2E FRAMEWORK
+================================
+
+Framework requirements:
+- Selenium-based (Java)
+- Page Object Model implemented according to best practices.
+- Clear separation:
+  - pages
+  - flows / actions
+  - assertions
+- Use modern design patterns where appropriate.
+- Avoid boilerplate (use Lombok where reasonable).
+- Every test must have exhaustive assertions.
+
+Test execution:
+- Tests target frontend at http://localhost:3005
+- Tests assume backend health endpoint:
+  /actuator/health
+
+================================
+SCENARIO DESIGN (CONSOLIDATED)
+================================
+
+Scenarios must be logically grouped.
+NO dependency between scenarios.
+NO state leakage.
+
+Required scenarios:
+
+A. User lifecycle
+1. User registration + DB verification
+2. Login + verification of available visualization quota
+3. Edit personal user data
+
+B. Project lifecycle
+4. Create project
+5. Edit project name
+6. Soft delete project
+
+C. Role-based access
+7. Admin login + admin panel access
+8. Non-admin access denied to admin panel
+9. Reviewer panel access for REVIEWER role
+
+D. Visualization flow (MOCKED)
+10. Complete questionnaire with:
+    - answers
+    - comment
+    - reference image
+    Verify:
+    - correct API payload
+    - correct persistence
+11. Edit answers + regenerate visualization
+12. Verify visualization versioning
+
+E. Refinement & review
+13. Refinement with comment (mocked generation)
+14. Change primary image + send to review
+15. Reviewer:
+    - login
+    - pricing
+    - finish review
+16. Author:
+    - sees pricing
+    - sees reviewer comment
+    - sees correct dialog history
+
+F. Security
+17. User cannot:
+    - access чужие projects
+    - mutate чужие resources
+    - bypass role restrictions
+
+Global rules:
+- Each scenario uses its own testRunId.
+- testRunId is NEVER shared across tests.
+
+================================
+DELIVERABLE EXPECTATIONS
+================================
+
+- Analyze existing backend and frontend code before implementing.
+- Do NOT invent abstractions.
+- Keep changes minimal, explicit, and reversible.
+- Clearly state when refactor is REQUIRED vs OPTIONAL.
+- Output ONLY:
+  - necessary code changes
+  - configuration files
+  - E2E framework structure
+- NO explanations unless a design decision is unavoidable.
+
+================================
+META RULE
+================================
+
+If at any point the framework would rely on implicit behavior, assumptions, or “it probably works” logic — STOP and report it as a design error.

@@ -1,0 +1,1 @@
+@echo offcd /d D:\PROJECTS\jewelai\backendmvnw spring-boot:run

@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16
+    container_name: jewelai_e2e_db
+    environment:
+      POSTGRES_DB: jewelai
+      POSTGRES_USER: jewelai
+      POSTGRES_PASSWORD: jewelai
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jewelai -d jewelai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5434:5432"
+    networks:
+      - jewelai_network
+
+  backend:
+    image: maven:3.9.9-eclipse-temurin-21
+    container_name: jewelai_e2e_backend
+    working_dir: /app
+    volumes:
+      - D:/PROJECTS/jewelai/backend:/app
+      - ${USERPROFILE}/.m2:/root/.m2
+    command: mvn spring-boot:run
+    environment:
+      SPRING_PROFILES_ACTIVE: dev-e2e
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/jewelai
+      SPRING_DATASOURCE_USERNAME: jewelai
+      SPRING_DATASOURCE_PASSWORD: jewelai
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - jewelai_network
+
+  frontend:
+    image: node:20
+    container_name: jewelai_e2e_frontend
+    working_dir: /app
+    volumes:
+      - D:/PROJECTS/jewelai/frontend:/app
+    command: sh -c "npm install && npx next dev -H 0.0.0.0 -p 3000 --turbo"
+    environment:
+      NEXT_PUBLIC_API_URL: /api
+      BACKEND_INTERNAL_URL: http://backend:8080
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    networks:
+      - jewelai_network
+
+networks:
+  jewelai_network:
+    driver: bridge
